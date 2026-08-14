@@ -2,14 +2,16 @@
 name: github
 description: >-
   Operate GitHub through the gh CLI — typed github::* functions for pull
-  requests, issues, repos, Actions runs/workflows, releases, and search,
+  requests, issues, repos, Actions runs/workflows, releases, search, and
+  repository security alerts,
   plus github::exec / github::api escape hatches for everything else.
 ---
 
 # github
 
-The github worker wraps the GitHub CLI (`gh`). Thirty typed functions cover
-the high-traffic surface (pr, issue, repo, run, workflow, release, search);
+The github worker wraps the GitHub CLI (`gh`). Thirty-two typed functions cover
+the high-traffic surface (pr, issue, repo, run, workflow, release, search,
+security alerts);
 `github::exec` runs any other gh command verbatim, and `github::api` reaches
 any GitHub REST endpoint. Auth comes from the worker's GH_TOKEN configuration
 or the host's ambient `gh auth login` state. There is no local checkout:
@@ -27,6 +29,11 @@ every repo-scoped call takes an explicit `repo: "owner/name"`.
 - Cut or inspect releases: `github::release::create` / `list` / `view`.
 - Find things org-wide: `github::search::repos` / `issues` / `prs` / `code`
   (qualifiers like `repo:o/r is:open` go in the query string).
+- Read bounded open-alert metadata: `github::security::dependabot-alerts` and
+  `github::security::code-scanning-alerts`. Responses say whether collection
+  is complete or partial and classify unavailable/disabled/auth failures
+  without returning raw CLI stderr. Code scanning also includes bounded health
+  metadata for the latest analysis.
 - Anything gh does that has no typed function → `github::exec { args: [...] }`.
 - Any REST endpoint → `github::api { path: "repos/o/r/…", jq? }`.
 
@@ -38,7 +45,9 @@ every repo-scoped call takes an explicit `repo: "owner/name"`.
   run/release create) and both escape hatches are approval-gated by default;
   the read-only surface is allowed (see iii-permissions.yaml).
 - Curated functions error on a non-zero gh exit (the message carries gh's
-  stderr); `github::exec` returns exit_code/stderr/timed_out as data instead.
+  stderr), except `github::security::*`, which returns a finite sanitized
+  availability classification so reconciliation can continue without exposing
+  stderr. `github::exec` returns exit_code/stderr/timed_out as data instead.
 - Output is capped per stream (default 1 MiB) with `*_truncated` flags;
   per-call `timeout_ms` clamps to `max_timeout_ms` (default 120 s; 30 s when
   omitted).
@@ -55,6 +64,9 @@ every repo-scoped call takes an explicit `repo: "owner/name"`.
 - `github::workflow::*` — list, run (workflow_dispatch).
 - `github::release::*` — list, view, create.
 - `github::search::*` — repos, issues, prs, code.
+- `github::security::dependabot-alerts` — normalized open Dependabot alerts.
+- `github::security::code-scanning-alerts` — normalized open code-scanning
+  alerts plus latest-analysis health.
 - `github::exec` — `{ args, stdin?, timeout_ms? }` → the full outcome as data
   (`stdout`, `stderr`, `exit_code`, `timed_out`, truncation flags).
 - `github::api` — `{ path, method?, fields?, body?, jq?, paginate?,

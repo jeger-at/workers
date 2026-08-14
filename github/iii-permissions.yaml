@@ -1,8 +1,10 @@
 # Agent permissions for the github worker.
 # Spec: docs/sops/new-worker.md § 7. First-match-wins.
 #
-# Read-only queries (list/view/diff/checks/search) are safe reads and allowed
-# without approval. Mutations (create/edit/merge/comment/review/close/rerun/
+# General read-only queries (list/view/diff/checks/search) are safe reads and
+# allowed without approval. Repository vulnerability alert metadata remains at
+# the needs_approval default for arbitrary agents. Mutations
+# (create/edit/merge/comment/review/close/rerun/
 # cancel/workflow run/release create) and both escape hatches (github::exec
 # runs arbitrary gh commands; github::api reaches any REST endpoint including
 # writes) deliberately stay at the needs_approval default.

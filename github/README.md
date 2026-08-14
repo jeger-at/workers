@@ -2,8 +2,8 @@
 
 GitHub as iii functions, powered by the GitHub CLI. Typed `github::*`
 functions cover pull requests, issues, repos, Actions runs and workflows,
-releases, and search; `github::exec` runs any other gh command and
-`github::api` reaches any GitHub REST endpoint. Agents get
+releases, search, and repository security alerts; `github::exec` runs any
+other gh command and `github::api` reaches any GitHub REST endpoint. Agents get
 schema-discoverable GitHub operations with read-vs-mutate permission gating
 instead of raw shell.
 
@@ -42,6 +42,18 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     println!("{prs:#?}"); // { value: [{ number, title, state, url, … }] }
 
+    // Open repository security alerts, normalized and bounded. A partial
+    // response never claims an exact total.
+    let alerts = iii
+        .trigger(TriggerRequest {
+            function_id: "github::security::dependabot-alerts".into(),
+            payload: json!({ "repo": "cli/cli", "limit": 100 }),
+            action: None,
+            timeout_ms: Some(60_000),
+        })
+        .await?;
+    println!("{alerts:#?}");
+
     // Anything else gh can do, verbatim:
     let version = iii
         .trigger(TriggerRequest {
@@ -68,3 +80,13 @@ max_output_bytes: 1048576    # per-stream capture cap (flags *_truncated)
 ```
 
 Other keys (and their defaults) live in [`src/config.rs`](src/config.rs).
+
+The two `github::security::*` functions request explicit 100-record REST pages
+under one deadline. Code scanning uses bounded numeric pages; Dependabot uses
+the endpoint's `after` cursor extracted from the next Link header. They make at
+most `ceil(limit / 100) + 1` requests (six at the 500-record maximum). Their
+response always carries `completeness`, `collected_count`, `availability`, and
+`truncation_reason`; partial results do not claim an exact total.
+Authentication, disabled-feature, permission, and temporary failures are
+returned as sanitized availability classifications, never raw headers or `gh`
+stderr.

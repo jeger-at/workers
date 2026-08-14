@@ -1,0 +1,314 @@
+{
+  "description": "List open code-scanning alerts for one repository: { repo: \"owner/name\", limit?, timeout_ms? } -> bounded public alert metadata plus completeness, collected_count, and a sanitized availability classification. limit defaults to 100 and is capped at 500.",
+  "function_id": "github::security::code-scanning-alerts",
+  "request_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "description": "Input shared by both read-only repository security functions.",
+    "properties": {
+      "limit": {
+        "description": "Maximum alerts returned. Defaults to 100; valid range is 1..=500.",
+        "format": "uint16",
+        "maximum": 500.0,
+        "minimum": 1.0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "repo": {
+        "description": "Target repository in the exact form `owner/name`.",
+        "type": "string"
+      },
+      "timeout_ms": {
+        "description": "Per-call timeout in ms, clamped to the configured max_timeout_ms.",
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "repo"
+    ],
+    "title": "AlertsRequest",
+    "type": "object"
+  },
+  "response_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "AlertAvailability": {
+        "description": "Sanitized result classification. This is intentionally finite and never includes `gh` stderr or GitHub's response body.",
+        "enum": [
+          "available",
+          "authentication_required",
+          "permission_denied",
+          "feature_disabled",
+          "repository_unavailable",
+          "temporarily_unavailable",
+          "client_unavailable",
+          "malformed_response"
+        ],
+        "type": "string"
+      },
+      "CodeScanningAlert": {
+        "description": "Stable, public subset of a code-scanning alert.",
+        "properties": {
+          "commit_sha": {
+            "description": "Commit SHA for the most recent instance when provided.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "description": "GitHub creation timestamp.",
+            "type": "string"
+          },
+          "end_line": {
+            "description": "Last line of the most recent location when provided.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "git_ref": {
+            "description": "Git ref for the most recent instance when provided.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "html_url": {
+            "description": "Public GitHub URL for the alert.",
+            "type": "string"
+          },
+          "message": {
+            "description": "Short diagnostic message for the most recent instance.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "number": {
+            "description": "Repository-local code-scanning alert number.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "path": {
+            "description": "Repository-relative location path when provided.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_description": {
+            "description": "Short rule description. Rule help and code snippets are not returned.",
+            "type": "string"
+          },
+          "rule_id": {
+            "description": "Rule identifier emitted by the scanning tool.",
+            "type": "string"
+          },
+          "rule_name": {
+            "description": "Human-readable rule name when provided.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "security_severity": {
+            "description": "Security severity when GitHub provides one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "description": "Tool severity such as `error`, `warning`, or `note`.",
+            "type": "string"
+          },
+          "start_line": {
+            "description": "First line of the most recent location when provided.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "GitHub alert state (this function requests `open`).",
+            "type": "string"
+          },
+          "tool_name": {
+            "description": "Name of the scanning tool.",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "GitHub update timestamp.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "created_at",
+          "html_url",
+          "number",
+          "rule_description",
+          "rule_id",
+          "severity",
+          "state",
+          "tool_name"
+        ],
+        "type": "object"
+      },
+      "CollectionCompleteness": {
+        "description": "Whether the returned alert list represents the whole open-alert result.",
+        "enum": [
+          "complete",
+          "partial"
+        ],
+        "type": "string"
+      },
+      "LatestCodeScanningAnalysis": {
+        "description": "Latest code-scanning analysis health, without SARIF, rule, or result data.",
+        "properties": {
+          "availability": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/AlertAvailability"
+              }
+            ],
+            "description": "Sanitized availability classification for the analysis endpoint."
+          },
+          "commit_sha": {
+            "description": "Commit SHA analyzed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "description": "GitHub analysis creation timestamp.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "Bounded analysis error text when GitHub reports a configuration or upload failure.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "git_ref": {
+            "description": "Git ref analyzed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tool_name": {
+            "description": "Scanning tool name when an analysis exists.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warning": {
+            "description": "Bounded analysis warning text when GitHub provides one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "availability"
+        ],
+        "type": "object"
+      },
+      "TruncationReason": {
+        "description": "Why an otherwise available result is incomplete.",
+        "enum": [
+          "record_limit",
+          "output_limit"
+        ],
+        "type": "string"
+      }
+    },
+    "description": "Typed response for `github::security::code-scanning-alerts`.",
+    "properties": {
+      "alerts": {
+        "description": "Bounded normalized open alerts.",
+        "items": {
+          "$ref": "#/definitions/CodeScanningAlert"
+        },
+        "type": "array"
+      },
+      "availability": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/AlertAvailability"
+          }
+        ],
+        "description": "Sanitized API/client availability classification."
+      },
+      "collected_count": {
+        "description": "Number of alert records actually returned; always equals alerts.len().",
+        "format": "uint",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "completeness": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/CollectionCompleteness"
+          }
+        ],
+        "description": "Whole-result versus partial-result marker. Never infer a total from a partial response."
+      },
+      "latest_analysis": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/LatestCodeScanningAnalysis"
+          }
+        ],
+        "description": "Bounded health metadata from the latest code-scanning analysis. This is queried separately so configuration/upload failures remain visible even when they produced no open alert."
+      },
+      "repository": {
+        "description": "Repository that was queried.",
+        "type": "string"
+      },
+      "truncation_reason": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/TruncationReason"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Present only when a configured record or output cap caused partial data."
+      }
+    },
+    "required": [
+      "alerts",
+      "availability",
+      "collected_count",
+      "completeness",
+      "latest_analysis",
+      "repository"
+    ],
+    "title": "CodeScanningAlertsResponse",
+    "type": "object"
+  }
+}

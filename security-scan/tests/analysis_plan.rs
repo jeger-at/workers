@@ -55,7 +55,19 @@ fn analysis_plan_is_scoped_to_an_isolated_worktree_and_read_only_functions() {
     }));
     assert!(plan.system_prompt.contains("untrusted review data"));
     assert!(plan.system_prompt.contains("Never execute repository code"));
+    assert!(plan.system_prompt.contains("concrete remediation plan"));
+    assert!(plan.message.contains("dependencies and packages"));
+    assert!(plan.message.contains("secrets and credentials"));
+    assert!(plan.message.contains("CI/release weaknesses"));
+    assert!(plan
+        .message
+        .contains("Populate the assessments object for every area"));
     assert!(plan.output_schema.get("properties").is_some());
+    assert!(plan
+        .output_schema
+        .get("required")
+        .and_then(|required| required.as_array())
+        .is_some_and(|required| required.iter().any(|field| field == "assessments")));
     assert_eq!(plan.model, "security-review-model");
     assert_eq!(plan.max_turns, 4);
     assert_eq!(plan.max_total_tokens, 50_000);

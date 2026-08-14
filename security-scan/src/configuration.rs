@@ -120,5 +120,12 @@ mod tests {
         let schema = serde_json::to_value(schema_for!(WorkerConfig)).expect("schema serializes");
         assert!(schema["definitions"].is_object());
         assert!(schema["properties"]["analysis"].is_object());
+        assert!(schema["definitions"]["RepositoryConfigV1"]["properties"]["github"].is_object());
+        assert!(schema["definitions"]["RepositoryConfigV1"]["properties"]["schedule"].is_object());
+        let required = schema["definitions"]["RepositoryConfigV1"]["required"]
+            .as_array()
+            .expect("repository required fields");
+        assert!(!required.iter().any(|field| field == "github"));
+        assert!(!required.iter().any(|field| field == "schedule"));
     }
 }

@@ -23,6 +23,19 @@ async fn create_wt(env: &TestEnv, repo: &Path, session: Option<&str>) -> create:
         .expect("create worktree")
 }
 
+async fn create_wt_at_unmerged_target(env: &TestEnv, repo: &Path) -> create::Response {
+    let primary = git(repo, &["branch", "--show-current"]).trim().to_string();
+    git(repo, &["checkout", "-b", "review-target"]);
+    commit_file(repo, "review.txt", "review\n", "review target");
+    let target = head_sha(repo);
+    git(repo, &["checkout", &primary]);
+    git(repo, &["branch", "-D", "review-target"]);
+
+    let mut request = create_request(repo);
+    request.base_ref = Some(target);
+    create::handle(&env.deps, request).await.unwrap()
+}
+
 #[tokio::test]
 async fn create_locks_registers_and_emits() {
     let tmp = tempfile::tempdir().unwrap();
@@ -292,17 +305,8 @@ async fn remove_clean_deletes_an_unchanged_unmerged_branch_by_exact_sha() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     init_repo(&repo);
-    let primary = git(&repo, &["branch", "--show-current"]).trim().to_string();
-    git(&repo, &["checkout", "-b", "review-target"]);
-    commit_file(&repo, "review.txt", "review\n", "review target");
-    let target = head_sha(&repo);
-    git(&repo, &["checkout", &primary]);
-    git(&repo, &["branch", "-D", "review-target"]);
-
     let env = make_env(tmp.path(), test_config(tmp.path()));
-    let mut request = create_request(&repo);
-    request.base_ref = Some(target);
-    let created = create::handle(&env.deps, request).await.unwrap();
+    let created = create_wt_at_unmerged_target(&env, &repo).await;
     let removed = remove::handle(
         &env.deps,
         remove::Request {
@@ -317,6 +321,74 @@ async fn remove_clean_deletes_an_unchanged_unmerged_branch_by_exact_sha() {
     assert!(removed.removed);
     assert!(removed.branch_deleted);
     assert!(!git(&repo, &["branch", "--list", &created.branch]).contains(&created.branch));
+}
+
+#[tokio::test]
+async fn remove_missing_directory_deletes_an_unchanged_unmerged_branch_by_exact_sha() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    let env = make_env(tmp.path(), test_config(tmp.path()));
+    let created = create_wt_at_unmerged_target(&env, &repo).await;
+    std::fs::remove_dir_all(&created.path).unwrap();
+
+    let removed = remove::handle(
+        &env.deps,
+        remove::Request {
+            worktree_id: created.worktree_id.clone(),
+            force: false,
+            delete_branch: true,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(removed.removed);
+    assert!(removed.branch_deleted);
+    assert!(!git(&repo, &["branch", "--list", &created.branch]).contains(&created.branch));
+    assert!(state::get_record(env.state.as_ref(), &created.worktree_id)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn remove_missing_directory_retains_a_branch_that_moved_from_the_recorded_sha() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    let moved_sha = head_sha(&repo);
+    let env = make_env(tmp.path(), test_config(tmp.path()));
+    let created = create_wt_at_unmerged_target(&env, &repo).await;
+    assert_ne!(created.base_sha, moved_sha);
+    std::fs::remove_dir_all(&created.path).unwrap();
+    let branch_ref = format!("refs/heads/{}", created.branch);
+    git(
+        &repo,
+        &["update-ref", &branch_ref, &moved_sha, &created.base_sha],
+    );
+
+    let removed = remove::handle(
+        &env.deps,
+        remove::Request {
+            worktree_id: created.worktree_id.clone(),
+            force: false,
+            delete_branch: true,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(removed.removed);
+    assert!(!removed.branch_deleted);
+    assert_eq!(
+        git(&repo, &["rev-parse", &created.branch]).trim(),
+        moved_sha
+    );
+    assert!(state::get_record(env.state.as_ref(), &created.worktree_id)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]

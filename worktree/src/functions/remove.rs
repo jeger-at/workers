@@ -142,6 +142,12 @@ pub async fn handle(deps: &Deps, req: Request) -> Result<Response, WError> {
     } else if repo_available {
         // Directory already gone: clean up stale admin metadata.
         ops::worktree_prune(repo, t).await;
+        if !req.force {
+            // The missing directory cannot be inspected, so use the recorded
+            // base only as the expected side of an atomic branch deletion.
+            // A branch that moved after the record was written is retained.
+            unchanged_branch_head = Some(record.base_sha.clone());
+        }
     }
 
     let mut branch_deleted = false;

@@ -13,9 +13,12 @@ fn catalog_matches_the_registered_surface() {
         ids,
         [
             "security-scan::request",
+            "security-scan::list",
+            "security-scan::reconciliation",
             "security-scan::read",
             "security-scan::execute",
             "security-scan::on-turn-completed",
+            "security-scan::on-schedule",
         ]
     );
 }

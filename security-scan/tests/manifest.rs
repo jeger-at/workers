@@ -33,6 +33,8 @@ fn worker_manifest_names_the_same_worker_and_description() {
     assert!(source.lines().any(|line| line == "bin: security-scan"));
     assert!(source.contains(manifest::DESCRIPTION));
     assert!(source.lines().any(|line| line.starts_with("tags: [")));
+    assert!(source.lines().any(|line| line == "  github: \"^0.3.1\""));
+    assert!(source.lines().any(|line| line == "  cron: \"^0.21.4\""));
 }
 
 #[test]

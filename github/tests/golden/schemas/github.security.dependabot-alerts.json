@@ -1,0 +1,227 @@
+{
+  "description": "List open Dependabot alerts for one repository: { repo: \"owner/name\", limit?, timeout_ms? } -> bounded public alert metadata plus completeness, collected_count, and a sanitized availability classification. limit defaults to 100 and is capped at 500.",
+  "function_id": "github::security::dependabot-alerts",
+  "request_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "description": "Input shared by both read-only repository security functions.",
+    "properties": {
+      "limit": {
+        "description": "Maximum alerts returned. Defaults to 100; valid range is 1..=500.",
+        "format": "uint16",
+        "maximum": 500.0,
+        "minimum": 1.0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "repo": {
+        "description": "Target repository in the exact form `owner/name`.",
+        "type": "string"
+      },
+      "timeout_ms": {
+        "description": "Per-call timeout in ms, clamped to the configured max_timeout_ms.",
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "repo"
+    ],
+    "title": "AlertsRequest",
+    "type": "object"
+  },
+  "response_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "AlertAvailability": {
+        "description": "Sanitized result classification. This is intentionally finite and never includes `gh` stderr or GitHub's response body.",
+        "enum": [
+          "available",
+          "authentication_required",
+          "permission_denied",
+          "feature_disabled",
+          "repository_unavailable",
+          "temporarily_unavailable",
+          "client_unavailable",
+          "malformed_response"
+        ],
+        "type": "string"
+      },
+      "CollectionCompleteness": {
+        "description": "Whether the returned alert list represents the whole open-alert result.",
+        "enum": [
+          "complete",
+          "partial"
+        ],
+        "type": "string"
+      },
+      "DependabotAlert": {
+        "description": "Stable, public subset of a Dependabot alert.",
+        "properties": {
+          "advisory_summary": {
+            "description": "Short advisory summary. The full advisory description is not returned.",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "GitHub creation timestamp.",
+            "type": "string"
+          },
+          "cve_id": {
+            "description": "CVE identifier when assigned.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dependency_scope": {
+            "description": "Dependency scope when GitHub provides one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ecosystem": {
+            "description": "Package ecosystem, for example `cargo` or `npm`.",
+            "type": "string"
+          },
+          "first_patched_version": {
+            "description": "First patched package version when known.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ghsa_id": {
+            "description": "GitHub Security Advisory identifier.",
+            "type": "string"
+          },
+          "html_url": {
+            "description": "Public GitHub URL for the alert.",
+            "type": "string"
+          },
+          "manifest_path": {
+            "description": "Manifest path reported by GitHub.",
+            "type": "string"
+          },
+          "number": {
+            "description": "Repository-local Dependabot alert number.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "package_name": {
+            "description": "Affected package name.",
+            "type": "string"
+          },
+          "relationship": {
+            "description": "Dependency relationship when GitHub provides one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "description": "Advisory severity such as `critical`, `high`, `medium`, or `low`.",
+            "type": "string"
+          },
+          "state": {
+            "description": "GitHub alert state (this function requests `open`).",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "GitHub update timestamp.",
+            "type": "string"
+          },
+          "vulnerable_version_range": {
+            "description": "Vulnerable version range.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "advisory_summary",
+          "created_at",
+          "ecosystem",
+          "ghsa_id",
+          "html_url",
+          "manifest_path",
+          "number",
+          "package_name",
+          "severity",
+          "state",
+          "updated_at",
+          "vulnerable_version_range"
+        ],
+        "type": "object"
+      },
+      "TruncationReason": {
+        "description": "Why an otherwise available result is incomplete.",
+        "enum": [
+          "record_limit",
+          "output_limit"
+        ],
+        "type": "string"
+      }
+    },
+    "description": "Typed response for `github::security::dependabot-alerts`.",
+    "properties": {
+      "alerts": {
+        "description": "Bounded normalized open alerts.",
+        "items": {
+          "$ref": "#/definitions/DependabotAlert"
+        },
+        "type": "array"
+      },
+      "availability": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/AlertAvailability"
+          }
+        ],
+        "description": "Sanitized API/client availability classification."
+      },
+      "collected_count": {
+        "description": "Number of alert records actually returned; always equals alerts.len().",
+        "format": "uint",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "completeness": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/CollectionCompleteness"
+          }
+        ],
+        "description": "Whole-result versus partial-result marker. Never infer a total from a partial response."
+      },
+      "repository": {
+        "description": "Repository that was queried.",
+        "type": "string"
+      },
+      "truncation_reason": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/TruncationReason"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Present only when a configured record or output cap caused partial data."
+      }
+    },
+    "required": [
+      "alerts",
+      "availability",
+      "collected_count",
+      "completeness",
+      "repository"
+    ],
+    "title": "DependabotAlertsResponse",
+    "type": "object"
+  }
+}

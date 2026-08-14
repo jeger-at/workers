@@ -261,32 +261,36 @@ where
 /// response envelope (`{ value }` / `{ output }` / `{ diff }` / a `GhOutcome`)
 /// and falls back to a bounded first-line/bytes description.
 pub fn summarize(function_id: &str, result: &Value) -> String {
-    let raw = match result {
-        Value::Object(m) if m.contains_key("output") => {
-            let out = m.get("output").and_then(Value::as_str).unwrap_or("");
-            let line = first_line(out);
-            if line.is_empty() {
-                "ok".to_string()
-            } else {
-                line
+    let raw = if is_security_alert_function(function_id) {
+        summarize_security_alerts(result)
+    } else {
+        match result {
+            Value::Object(m) if m.contains_key("output") => {
+                let out = m.get("output").and_then(Value::as_str).unwrap_or("");
+                let line = first_line(out);
+                if line.is_empty() {
+                    "ok".to_string()
+                } else {
+                    line
+                }
             }
-        }
-        Value::Object(m) if m.contains_key("diff") => {
-            let diff = m.get("diff").and_then(Value::as_str).unwrap_or("");
-            let truncated = m.get("truncated").and_then(Value::as_bool).unwrap_or(false);
-            let mut s = format!("{} diff", human_bytes(diff.len()));
-            if truncated {
-                s.push_str(", truncated");
+            Value::Object(m) if m.contains_key("diff") => {
+                let diff = m.get("diff").and_then(Value::as_str).unwrap_or("");
+                let truncated = m.get("truncated").and_then(Value::as_bool).unwrap_or(false);
+                let mut s = format!("{} diff", human_bytes(diff.len()));
+                if truncated {
+                    s.push_str(", truncated");
+                }
+                s
             }
-            s
+            Value::Object(m) if m.contains_key("value") => {
+                summarize_value(function_id, m.get("value").unwrap_or(&Value::Null))
+            }
+            Value::Object(m) if m.contains_key("exit_code") || m.contains_key("stdout") => {
+                summarize_outcome(m)
+            }
+            _ => first_line(&result.to_string()),
         }
-        Value::Object(m) if m.contains_key("value") => {
-            summarize_value(function_id, m.get("value").unwrap_or(&Value::Null))
-        }
-        Value::Object(m) if m.contains_key("exit_code") || m.contains_key("stdout") => {
-            summarize_outcome(m)
-        }
-        _ => first_line(&result.to_string()),
     };
     truncate(&raw, MAX_SUMMARY)
 }
@@ -303,6 +307,9 @@ pub fn summarize(function_id: &str, result: &Value) -> String {
 /// - `{ exit_code|stdout }` → `"outcome"`, `{ exit_code, stdout, stderr, … }`
 /// - anything else → `"object"`, the value projected to fit the byte budget
 pub fn preview(function_id: &str, result: &Value) -> (String, Value) {
+    if is_security_alert_function(function_id) {
+        return ("object".to_string(), preview_security_alerts(result));
+    }
     match result {
         Value::Object(m) if m.contains_key("output") => {
             let out = m.get("output").and_then(Value::as_str).unwrap_or("");
@@ -333,6 +340,86 @@ pub fn preview(function_id: &str, result: &Value) -> (String, Value) {
         Value::Null => ("object".to_string(), Value::Null),
         other => ("object".to_string(), project_object(other)),
     }
+}
+
+fn is_security_alert_function(function_id: &str) -> bool {
+    matches!(
+        function_id,
+        "github::security::dependabot-alerts" | "github::security::code-scanning-alerts"
+    )
+}
+
+/// Security responses carry attacker-controlled alert text and locations.
+/// Their activity event is a hard allowlist, even when the complete response
+/// is small enough that the generic object preview would otherwise keep it.
+fn preview_security_alerts(result: &Value) -> Value {
+    let Value::Object(result) = result else {
+        return Value::Null;
+    };
+    let mut preview = Map::new();
+    for key in [
+        "repository",
+        "availability",
+        "completeness",
+        "collected_count",
+        "truncation_reason",
+    ] {
+        if let Some(value) = result.get(key) {
+            preview.insert(key.to_string(), value.clone());
+        }
+    }
+    if let Some(Value::Object(analysis)) = result.get("latest_analysis") {
+        let mut health = Map::new();
+        for key in [
+            "availability",
+            "tool_name",
+            "commit_sha",
+            "git_ref",
+            "created_at",
+        ] {
+            if let Some(value) = analysis.get(key) {
+                health.insert(key.to_string(), value.clone());
+            }
+        }
+        health.insert(
+            "has_error".to_string(),
+            Value::Bool(nonempty_string(analysis.get("error"))),
+        );
+        health.insert(
+            "has_warning".to_string(),
+            Value::Bool(nonempty_string(analysis.get("warning"))),
+        );
+        preview.insert("latest_analysis".to_string(), Value::Object(health));
+    }
+    Value::Object(preview)
+}
+
+fn nonempty_string(value: Option<&Value>) -> bool {
+    value
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn summarize_security_alerts(result: &Value) -> String {
+    let Value::Object(result) = result else {
+        return "security alerts unavailable".to_string();
+    };
+    let count = result
+        .get("collected_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let completeness = result
+        .get("completeness")
+        .and_then(Value::as_str)
+        .unwrap_or("partial");
+    let availability = result
+        .get("availability")
+        .and_then(Value::as_str)
+        .unwrap_or("unavailable");
+    format!(
+        "{count} {}, {completeness}, {availability}",
+        pluralize("security alert", count as usize)
+    )
 }
 
 /// `{ items: [first N projected], total }` — keep the true length so the UI can
@@ -887,6 +974,59 @@ mod tests {
         assert!(
             pv["body"].as_str().unwrap().len() <= PREVIEW_STRING_BYTES,
             "long string trimmed"
+        );
+    }
+
+    #[test]
+    fn security_preview_never_emits_alert_or_analysis_content() {
+        let result = json!({
+            "repository": "o/r",
+            "availability": "available",
+            "completeness": "complete",
+            "collected_count": 1,
+            "truncation_reason": Value::Null,
+            "alerts": [{
+                "number": 7,
+                "path": "private/path.rs",
+                "message": "attacker-controlled diagnostic",
+                "advisory_summary": "attacker-controlled advisory",
+            }],
+            "latest_analysis": {
+                "availability": "available",
+                "tool_name": "Trivy",
+                "commit_sha": "abc123",
+                "git_ref": "refs/heads/main",
+                "created_at": "2026-01-01T00:00:00Z",
+                "error": "private analysis error",
+                "warning": "private analysis warning",
+            }
+        });
+        let original = result.clone();
+        let (kind, preview) = preview("github::security::code-scanning-alerts", &result);
+        assert_eq!(result, original, "preview must not mutate the call result");
+        assert_eq!(kind, "object");
+        assert_eq!(preview["repository"], json!("o/r"));
+        assert_eq!(preview["collected_count"], json!(1));
+        assert_eq!(preview["latest_analysis"]["tool_name"], json!("Trivy"));
+        assert_eq!(preview["latest_analysis"]["has_error"], json!(true));
+        assert_eq!(preview["latest_analysis"]["has_warning"], json!(true));
+        assert!(preview.get("alerts").is_none());
+        assert!(preview["latest_analysis"].get("error").is_none());
+        assert!(preview["latest_analysis"].get("warning").is_none());
+        let encoded = serde_json::to_string(&preview).unwrap();
+        for forbidden in [
+            "private/path.rs",
+            "attacker-controlled diagnostic",
+            "attacker-controlled advisory",
+            "private analysis error",
+            "private analysis warning",
+            "advisory_summary",
+        ] {
+            assert!(!encoded.contains(forbidden), "preview leaked {forbidden}");
+        }
+        assert_eq!(
+            summarize("github::security::code-scanning-alerts", &result),
+            "1 security alert, complete, available"
         );
     }
 

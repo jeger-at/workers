@@ -71,6 +71,8 @@ fn catalog_lists_all_functions_in_registration_order() {
             "github::search::issues",
             "github::search::prs",
             "github::search::code",
+            "github::security::dependabot-alerts",
+            "github::security::code-scanning-alerts",
             "github::exec",
             "github::api",
         ]

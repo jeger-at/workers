@@ -19,6 +19,14 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "additionalProperties": false,
     "definitions": {
+      "AssessmentStatusV1": {
+        "enum": [
+          "assessed",
+          "not_assessed",
+          "unknown"
+        ],
+        "type": "string"
+      },
       "FindingLocationV1": {
         "additionalProperties": false,
         "properties": {
@@ -163,6 +171,48 @@
         ],
         "type": "string"
       },
+      "SecurityAreaAssessmentV1": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/definitions/AssessmentStatusV1"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "SecurityAssessmentsV1": {
+        "additionalProperties": false,
+        "properties": {
+          "dependencies": {
+            "$ref": "#/definitions/SecurityAreaAssessmentV1"
+          },
+          "secrets": {
+            "$ref": "#/definitions/SecurityAreaAssessmentV1"
+          },
+          "supply_chain": {
+            "$ref": "#/definitions/SecurityAreaAssessmentV1"
+          },
+          "vulnerabilities": {
+            "$ref": "#/definitions/SecurityAreaAssessmentV1"
+          }
+        },
+        "required": [
+          "dependencies",
+          "secrets",
+          "supply_chain",
+          "vulnerabilities"
+        ],
+        "type": "object"
+      },
       "SecurityFindingV1": {
         "additionalProperties": false,
         "properties": {
@@ -214,6 +264,9 @@
       "SecurityReportV1": {
         "additionalProperties": false,
         "properties": {
+          "assessments": {
+            "$ref": "#/definitions/SecurityAssessmentsV1"
+          },
           "findings": {
             "items": {
               "$ref": "#/definitions/SecurityFindingV1"
@@ -225,6 +278,7 @@
           }
         },
         "required": [
+          "assessments",
           "findings",
           "summary"
         ],

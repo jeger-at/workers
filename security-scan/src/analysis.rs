@@ -36,9 +36,11 @@ pub fn build_analysis_plan(
     config: &AnalysisConfigV1,
 ) -> AnalysisPlan {
     let mode_instruction = match run.mode {
-        ScanModeV1::Scan => "Report verified findings without proposing a patch.",
+        ScanModeV1::Scan => {
+            "Give every verified finding a concrete remediation plan, but do not propose or include a patch."
+        }
         ScanModeV1::Suggest => {
-            "For each verified finding, include a minimal suggested patch when one can be produced safely."
+            "Give every verified finding a concrete remediation plan and include a minimal suggested patch when one can be produced safely."
         }
     };
     AnalysisPlan {
@@ -60,8 +62,12 @@ pub fn build_analysis_plan(
              Cite precise paths and line numbers when available. {mode_instruction}"
         ),
         message: format!(
-            "Review repository {} at immutable commit {} for security vulnerabilities and \
-             supply-chain weaknesses. Return only the requested structured report.",
+            "Review repository {} at immutable commit {} across four areas: code vulnerabilities, \
+             dependencies and packages, secrets and credentials, and software supply-chain or \
+             CI/release weaknesses. Populate the assessments object for every area. Use assessed \
+             only when that area received a meaningful review, use not_assessed otherwise, and \
+             explain every not_assessed status in its reason. Return only the requested structured \
+             report.",
             run.repository, run.target_sha
         ),
         allowed_functions: ANALYSIS_READ_FUNCTIONS

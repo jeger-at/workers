@@ -1,15 +1,39 @@
-use std::{collections::HashSet, path::Path};
+use std::{collections::HashSet, path::Path, str::FromStr};
 
+use cron::Schedule;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::SecurityScanError;
+use crate::{ScanModeV1, SecurityScanError};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryScheduleV1 {
+    /// Six-field (seconds through weekday) or seven-field (plus year) UTC cron expression.
+    pub expression: String,
+    /// Local Git ref resolved to a commit when the schedule fires.
+    pub target_ref: String,
+    pub mode: ScanModeV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryGitHubConfigV1 {
+    /// GitHub repository in the exact form `owner/name`.
+    pub full_name: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RepositoryConfigV1 {
     pub id: String,
     pub path: String,
+    /// Omit when this local checkout has no operator-verified GitHub mapping.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github: Option<RepositoryGitHubConfigV1>,
+    /// Omit to disable scheduled scans for this repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<RepositoryScheduleV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -51,6 +75,17 @@ impl WorkerConfig {
                     repository.id
                 )));
             }
+            if let Some(github) = &repository.github {
+                if !is_valid_github_full_name(&github.full_name) {
+                    return Err(invalid(format!(
+                        "repository {} github.full_name must be exactly owner/name using letters, digits, '.', '_' or '-'",
+                        repository.id
+                    )));
+                }
+            }
+            if let Some(schedule) = &repository.schedule {
+                validate_schedule(&repository.id, schedule)?;
+            }
         }
         if !self.repositories.is_empty() && self.analysis.model.trim().is_empty() {
             return Err(invalid("analysis.model cannot be empty"));
@@ -91,6 +126,72 @@ impl WorkerConfig {
             .iter()
             .find(|repository| repository.id == id)
     }
+}
+
+pub(crate) fn is_valid_github_full_name(full_name: &str) -> bool {
+    let mut parts = full_name.split('/');
+    let owner = parts.next().unwrap_or_default();
+    let name = parts.next().unwrap_or_default();
+    parts.next().is_none() && is_valid_github_part(owner) && is_valid_github_part(name)
+}
+
+fn is_valid_github_part(part: &str) -> bool {
+    !part.is_empty()
+        && part != "."
+        && part != ".."
+        && part
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn validate_schedule(
+    repository_id: &str,
+    schedule: &RepositoryScheduleV1,
+) -> Result<(), SecurityScanError> {
+    let expression = schedule.expression.trim();
+    let field_count = expression.split_whitespace().count();
+    if expression != schedule.expression || !matches!(field_count, 6 | 7) {
+        return Err(invalid(format!(
+            "repository {repository_id} schedule.expression must be a trimmed six- or seven-field UTC cron expression"
+        )));
+    }
+    Schedule::from_str(expression).map_err(|error| {
+        invalid(format!(
+            "repository {repository_id} schedule.expression is invalid: {error}"
+        ))
+    })?;
+    if !is_safe_target_ref(&schedule.target_ref) {
+        return Err(invalid(format!(
+            "repository {repository_id} schedule.target_ref is not a valid Git ref"
+        )));
+    }
+    Ok(())
+}
+
+fn is_safe_target_ref(target_ref: &str) -> bool {
+    if target_ref.is_empty()
+        || target_ref.len() > 1_024
+        || target_ref == "@"
+        || target_ref.trim() != target_ref
+        || target_ref.starts_with('-')
+        || target_ref.starts_with('/')
+        || target_ref.ends_with('/')
+        || target_ref.ends_with('.')
+        || target_ref.contains("//")
+        || target_ref.contains("..")
+        || target_ref.contains("@{")
+        || target_ref.chars().any(|character| {
+            character.is_control()
+                || character.is_whitespace()
+                || matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+        })
+    {
+        return false;
+    }
+
+    target_ref
+        .split('/')
+        .all(|component| !component.starts_with('.') && !component.ends_with(".lock"))
 }
 
 fn invalid(message: impl Into<String>) -> SecurityScanError {

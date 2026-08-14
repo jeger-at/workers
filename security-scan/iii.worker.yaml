@@ -18,8 +18,11 @@ config:
     max_cost_usd: 2.0
 
 dependencies:
+  github: "^0.3.1"
+  cron: "^0.21.4"
   state: "^0.22.0"
   queue: "^0.21.2"
   worktree: "^0.3.1"
   configuration: "^0.21.6"
   iii-observability: "^0.21.6"
+  iii-stream: "^0.21.6"

@@ -24,6 +24,7 @@ packages:
   - iii-directory/ui
   - shell/ui
   - worktree/ui
+  - security-scan/ui
   - github/ui
   - llm-router/ui
 

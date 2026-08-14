@@ -1,5 +1,5 @@
 //! Registration: shared response types, the generic register helpers that
-//! keep ~30 thin gh wrappers non-repetitive, and the wire-surface catalog
+//! keep 32 thin gh wrappers non-repetitive, and the wire-surface catalog
 //! golden-tested in `tests/schemas.rs`.
 
 pub mod actions;
@@ -9,6 +9,7 @@ pub mod pr;
 pub mod release;
 pub mod repo;
 pub mod search;
+pub mod security;
 
 use iii_sdk::errors::Error;
 use iii_sdk::{IIIClient, RegisterFunction};
@@ -465,6 +466,8 @@ pub fn register_all(iii: &IIIClient, cell: &ConfigCell, emitter: &CalledEmitter)
         search::code_args,
     );
 
+    security::register(iii, cell, emitter);
+
     passthrough::register(iii, cell, emitter);
 }
 
@@ -587,6 +590,14 @@ pub fn catalog() -> Vec<FunctionSpec> {
         spec::<search::IssuesRequest, ValueResponse>(search::ISSUES_ID, search::ISSUES_DESC),
         spec::<search::PrsRequest, ValueResponse>(search::PRS_ID, search::PRS_DESC),
         spec::<search::CodeRequest, ValueResponse>(search::CODE_ID, search::CODE_DESC),
+        spec::<security::AlertsRequest, security::DependabotAlertsResponse>(
+            security::DEPENDABOT_ALERTS_ID,
+            security::DEPENDABOT_ALERTS_DESC,
+        ),
+        spec::<security::AlertsRequest, security::CodeScanningAlertsResponse>(
+            security::CODE_SCANNING_ALERTS_ID,
+            security::CODE_SCANNING_ALERTS_DESC,
+        ),
         spec::<passthrough::ExecRequest, GhOutcome>(passthrough::EXEC_ID, passthrough::EXEC_DESC),
         spec::<passthrough::ApiRequest, ValueResponse>(passthrough::API_ID, passthrough::API_DESC),
     ]

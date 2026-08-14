@@ -50,6 +50,8 @@ fn config() -> WorkerConfig {
         repositories: vec![RepositoryConfigV1 {
             id: "iii-hq/iii".into(),
             path: "/srv/repos/iii".into(),
+            github: None,
+            schedule: None,
         }],
         analysis: AnalysisConfigV1 {
             model: "security-review-model".into(),
@@ -267,6 +269,12 @@ async fn terminal_harness_completion_persists_the_validated_security_report() {
         terminal: true,
         result: Some(serde_json::json!({
             "summary": "No verified vulnerabilities.",
+            "assessments": {
+                "vulnerabilities": { "status": "assessed" },
+                "dependencies": { "status": "assessed" },
+                "secrets": { "status": "assessed" },
+                "supply_chain": { "status": "assessed" }
+            },
             "findings": []
         })),
         result_error: None,

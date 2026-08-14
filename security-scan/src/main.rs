@@ -71,6 +71,13 @@ async fn main() -> Result<()> {
         .await
         .map_err(anyhow::Error::msg)
         .context("claiming private security-scan state")?;
+    match runtime.backfill_run_index().await {
+        Ok(0) => {}
+        Ok(count) => tracing::info!(count, "backfilled security scan run history"),
+        Err(error) => {
+            tracing::warn!(%error, "security scan run history backfill deferred")
+        }
+    }
 
     let executor = Arc::new(SecurityScanExecutor::new(runtime.clone(), config.clone()));
     let deps = Arc::new(functions::Deps {
@@ -78,11 +85,16 @@ async fn main() -> Result<()> {
         executor: executor.clone(),
     });
     functions::register_all(&iii, &deps);
+    security_scan::ui::register(&iii);
     runtime
         .ensure_queue()
         .await
         .map_err(anyhow::Error::msg)
         .context("defining security-scan FIFO queue")?;
+    let schedule_handles =
+        security_scan::schedule::register(&iii, deps.service.clone(), Arc::new(config.clone()))
+            .await;
+    let initial_schedule_count = schedule_handles.bound_schedule_count();
 
     let _completion_trigger = match iii.register_trigger(RegisterTriggerInput {
         trigger_type: "harness::turn-completed".into(),
@@ -104,18 +116,21 @@ async fn main() -> Result<()> {
     // order, lost asynchronous trigger registration, and lost queue wakes.
     let recovery_runtime = runtime.clone();
     let recovery_executor = executor.clone();
+    let mut recovery_schedule_handles = schedule_handles;
     let recovery = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         interval.tick().await;
         loop {
             interval.tick().await;
+            recovery_schedule_handles.recover_bindings().await;
             reconcile_runs(&recovery_runtime, &recovery_executor).await;
         }
     });
 
     tracing::info!(
         repositories = deps.service.configured_repository_count(),
+        schedules = initial_schedule_count,
         "security-scan ready"
     );
     tokio::signal::ctrl_c().await?;
@@ -129,7 +144,16 @@ async fn reconcile_runs(
     runtime: &Arc<IiiRuntime>,
     executor: &Arc<SecurityScanExecutor<IiiRuntime>>,
 ) {
-    match runtime.list_runs().await {
+    match runtime.retry_run_index_backfill().await {
+        Ok(None | Some(0)) => {}
+        Ok(Some(count)) => tracing::info!(count, "backfilled security scan run history"),
+        Err(error) => tracing::warn!(%error, "security scan run history backfill deferred"),
+    }
+    let repaired = runtime.repair_pending_run_index().await;
+    if repaired > 0 {
+        tracing::info!(repaired, "repaired security scan run history projections");
+    }
+    match runtime.list_reconciliation_runs().await {
         Ok(runs) => {
             for run in runs {
                 if run.status == RunStatusV1::Analyzing {
