@@ -288,6 +288,38 @@ async fn remove_clean_needs_no_force() {
 }
 
 #[tokio::test]
+async fn remove_clean_deletes_an_unchanged_unmerged_branch_by_exact_sha() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    init_repo(&repo);
+    let primary = git(&repo, &["branch", "--show-current"]).trim().to_string();
+    git(&repo, &["checkout", "-b", "review-target"]);
+    commit_file(&repo, "review.txt", "review\n", "review target");
+    let target = head_sha(&repo);
+    git(&repo, &["checkout", &primary]);
+    git(&repo, &["branch", "-D", "review-target"]);
+
+    let env = make_env(tmp.path(), test_config(tmp.path()));
+    let mut request = create_request(&repo);
+    request.base_ref = Some(target);
+    let created = create::handle(&env.deps, request).await.unwrap();
+    let removed = remove::handle(
+        &env.deps,
+        remove::Request {
+            worktree_id: created.worktree_id.clone(),
+            force: false,
+            delete_branch: true,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(removed.removed);
+    assert!(removed.branch_deleted);
+    assert!(!git(&repo, &["branch", "--list", &created.branch]).contains(&created.branch));
+}
+
+#[tokio::test]
 async fn validate_distinguishes_managed_unmanaged_orphaned() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");

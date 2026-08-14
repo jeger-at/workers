@@ -19,6 +19,14 @@
           "null"
         ]
       },
+      "copy_ignored": {
+        "default": null,
+        "description": "Per-request provisioning preference. `false` always opts out; `true` can only use provisioning when the operator enabled it globally.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
       "pr": {
         "default": null,
         "description": "Create the worktree at a GitHub pull request head: fetches `refs/pull/<n>/head` from `origin` and branches `<prefix>pr-<n>` at it. Mutually exclusive with `base_ref` and `branch`.",

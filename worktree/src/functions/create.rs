@@ -32,6 +32,10 @@ pub struct Request {
     /// Session to auto-claim the worktree for.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Per-request provisioning preference. `false` always opts out; `true`
+    /// can only use provisioning when the operator enabled it globally.
+    #[serde(default)]
+    pub copy_ignored: Option<bool>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -194,7 +198,8 @@ pub async fn handle(deps: &Deps, req: Request) -> Result<Response, WError> {
         )
         .await;
 
-    if cfg.provision.copy_ignored {
+    let copy_ignored = cfg.provision.copy_ignored && req.copy_ignored.unwrap_or(true);
+    if copy_ignored {
         // Best-effort background provisioning; the create response never
         // waits on it and nothing new is emitted.
         crate::provision::spawn_copy_ignored(

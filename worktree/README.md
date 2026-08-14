@@ -108,6 +108,10 @@ excluded, bounded by `max_copy_bytes`. Provisioning is best-effort by
 design: the create response never waits on it, failures only log, and a
 retried copy skips files that already landed.
 
+Callers that require a commit-only checkout can pass `copy_ignored: false`
+to `worktree::create`. This per-request option can disable provisioning but
+cannot enable it when the operator has disabled it globally.
+
 ### Pull request checkouts, dev ports, integration
 
 `worktree::create` also takes `pr: <number>`: it fetches

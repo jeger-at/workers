@@ -235,3 +235,20 @@ async fn create_spawns_the_background_provisioning() {
     }
     assert!(env_file.exists(), "background provisioning never landed");
 }
+
+#[tokio::test]
+async fn create_request_can_opt_out_of_globally_enabled_ignored_provisioning() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = ignored_fixture(tmp.path());
+    let mut cfg = test_config(tmp.path());
+    cfg.provision.copy_ignored = true;
+    let env = make_env(tmp.path(), cfg);
+    let mut request = create_request(&repo);
+    request.copy_ignored = Some(false);
+
+    let created = create::handle(&env.deps, request).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert!(!Path::new(&created.path).join(".env").exists());
+    assert!(!Path::new(&created.path).join("node_modules").exists());
+}

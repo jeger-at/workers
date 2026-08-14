@@ -187,6 +187,7 @@ pub fn create_request(repo: &Path) -> create::Request {
         branch: None,
         pr: None,
         session_id: None,
+        copy_ignored: None,
     }
 }
 

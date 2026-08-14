@@ -80,6 +80,7 @@ pub async fn handle(deps: &Deps, req: Request) -> Result<Response, WError> {
     let repo = Path::new(&record.repo_path);
     let wt = Path::new(&record.path);
     let repo_available = repo.is_dir();
+    let mut unchanged_branch_head = None;
 
     if wt.is_dir() && repo_available {
         if !req.force {
@@ -89,7 +90,8 @@ pub async fn handle(deps: &Deps, req: Request) -> Result<Response, WError> {
                 ops::ahead_behind(wt, &record.base_sha, t),
                 crate::trash::dir_in_use(wt),
             );
-            if !st?.clean() {
+            let st = st?;
+            if !st.clean() {
                 return Err(WError::new(
                     codes::DIRTY,
                     format!(
@@ -109,6 +111,9 @@ pub async fn handle(deps: &Deps, req: Request) -> Result<Response, WError> {
                     ),
                 ));
             }
+            unchanged_branch_head = st
+                .oid
+                .filter(|oid| oid.eq_ignore_ascii_case(&record.base_sha));
             if busy == Some(true) {
                 return Err(WError::new(
                     codes::WORKTREE_BUSY,
@@ -141,7 +146,16 @@ pub async fn handle(deps: &Deps, req: Request) -> Result<Response, WError> {
 
     let mut branch_deleted = false;
     if req.delete_branch && repo_available {
-        branch_deleted = ops::branch_delete(repo, &record.branch, req.force, t).await;
+        branch_deleted = if req.force {
+            ops::branch_delete(repo, &record.branch, true, t).await
+        } else if let Some(expected_sha) = unchanged_branch_head {
+            // A clean scanner-style worktree can point at a commit that is
+            // intentionally not merged into the primary branch. Delete only
+            // while the branch still points at the exact verified base SHA.
+            ops::cas_branch_delete(repo, &record.branch, &expected_sha, t).await?
+        } else {
+            ops::branch_delete(repo, &record.branch, false, t).await
+        };
     }
 
     state::delete_record(deps.state.as_ref(), &record.worktree_id).await?;
